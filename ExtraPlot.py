@@ -4,6 +4,7 @@ import numpy as np
 
 raw_img=cv2.imread('circle.jpg')
 copy_img=raw_img.copy()
+copy_img2=raw_img.copy()
 
 t1=time.time()
 #prepose the image
@@ -68,7 +69,7 @@ for h_ in range(h):
     total=np.sum(region)
     if total < 110:
         gap = abs(h_ - gap_lin_y)
-        gap_judge = (gap < 110)
+        gap_judge = (gap< 110)
         if np.sum(gap_judge)>0:
             continue
         else:
@@ -78,12 +79,46 @@ for h_ in range(h):
 t2=time.time()
 print('run time:',t2-t1)
 
-#cv2.imwrite('result234.png',copy_img)
-cv2.imshow('img',copy_img)
-key=cv2.waitKey(0)
+# #cv2.imwrite('result234.png',copy_img)
+# cv2.imshow('img',copy_img)
+# key=cv2.waitKey(0)
+#
+# print(vertical_lines)
+# print(horizontal_lines)
 
-print(vertical_lines)
-print(horizontal_lines)
+vertical_lines,horizontal_lines=np.array(vertical_lines),np.array(horizontal_lines)
+vertical_lines=vertical_lines[vertical_lines[:,0].argsort()]
+horizontal_lines=horizontal_lines[horizontal_lines[:,1].argsort()]
+
+plot=[]
+
+for i in range(vertical_lines.shape[0]):
+    v1 = vertical_lines[i]
+    x1,_,_,_,_=v1
+    if i !=vertical_lines.shape[0]-1:
+        v2=vertical_lines[i+1]
+        x2, _, _, _, _ = v2
+
+        for j in range(horizontal_lines.shape[0]):
+            h1=horizontal_lines[j]
+            _,y1,_,_,_=h1
+            if j !=horizontal_lines.shape[0]-1:
+                h2=horizontal_lines[j+1]
+                _, y2, _, _, _ = h2
+                x1,y1,x2,y2=int(x1),int(y1),int(x2),int(y2)
+                cv2.rectangle(copy_img2,(x1,y1),(x2,y2),(0,0,255),thickness=2)
+                plot.append([x1,y1,x2,y2])
+
+
+cv2.imwrite('experimet.jpg',copy_img2)
+print(plot)
+print(len(plot))
+
+
+
+
+
+
 
 
 
