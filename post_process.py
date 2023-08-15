@@ -7,6 +7,7 @@ import shapely
 import skimage.io
 import numpy as np
 
+os.environ["OPENCV_IO_MAX_IMAGE_PIXELS"] = pow(2, 40).__str__()
 #####################################################################################
 #用于将子图中的相对坐标，转换为相对子图的绝对坐标
 def convert_reverse(size, box):
@@ -202,7 +203,7 @@ def augment_data(df,
 #####################################################################################
 
 #重叠框的非极大值抑制
-def py_cpu_softnms(dets, sc, Nt=0.35, sigma=0.25, thresh=0.05, method=2):
+def py_cpu_softnms(dets, sc, Nt=0.3, sigma=0.5, thresh=0.05, method=2):
     """
     py_cpu_softnms
     :param dets:   boexs 坐标矩阵 format [y1, x1, y2, x2]
@@ -284,69 +285,69 @@ def py_cpu_softnms(dets, sc, Nt=0.35, sigma=0.25, thresh=0.05, method=2):
     return keep
 
 
-# def non_max_suppression(boxes, probs=[],overlapThresh=0.5):
-#
-#     print("正在进行重叠框的非极大值抑制")
-#     len_init = len(boxes)
-#
-#     #如果输入的坐标组没有对象，直接返回空列表
-#     if len(boxes) == 0:
-#         return [], [], []
-#
-#     #boxs转array
-#     boxes = np.asarray([b[:4] for b in boxes])
-#     #将boxes里的数据类型转换为float类型
-#     if boxes.dtype.kind == "i":
-#         boxes = boxes.astype("float")
-#
-#     #初始化所选索引的列表
-#     pick = []
-#
-#     #获取边界框的坐标
-#     x1 = boxes[:, 0]
-#     y1 = boxes[:, 1]
-#     x2 = boxes[:, 2]
-#     y2 = boxes[:, 3]
-#     #计算框面积
-#     area = (x2 - x1 + 1) * (y2 - y1 + 1)
-#
-#     #如果置信度为空，根据边界框的右下角y坐标对框进行排序
-#     if len(probs) == 0:
-#         idxs = np.argsort(y2)
-#     #否则，按最高prob（降序）对框进行排序
-#     else:
-#         # idxs = np.argsort(probs)[::-1]
-#         idxs = np.argsort(probs)
-#
-#     #保持循环，同时某些索引仍保留在索引中
-#     while len(idxs) > 0:
-#
-#         last = len(idxs) - 1
-#         i = idxs[last]
-#
-#         pick.append(i)
-#
-#         #将拿到的对象和其他目标做坐标方面的对比，x1[i]比x2[i]小，y1[i]比y2[i]小
-#         xx1 = np.maximum(x1[i], x1[idxs[:last]])
-#         yy1 = np.maximum(y1[i], y1[idxs[:last]])
-#         xx2 = np.minimum(x2[i], x2[idxs[:last]])
-#         yy2 = np.minimum(y2[i], y2[idxs[:last]])
-#
-#         w = np.maximum(0, xx2 - xx1 + 1)
-#         h = np.maximum(0, yy2 - yy1 + 1)
-#
-#         overlap = (w * h) / area[idxs[:last]]
-#
-#
-#
-#             #删掉
-#         idxs = np.delete(
-#                 idxs,
-#                 np.concatenate(([last], np.where(overlap > overlapThresh)[0])))
-#
-#
-#     print("重叠框NMS后，剩余预测框数量为:", len(pick))
-#     return pick
+def non_max_suppression(boxes, probs=[],overlapThresh=0.4):
+
+    print("正在进行重叠框的非极大值抑制")
+    len_init = len(boxes)
+
+    #如果输入的坐标组没有对象，直接返回空列表
+    if len(boxes) == 0:
+        return [], [], []
+
+    #boxs转array
+    boxes = np.asarray([b[:4] for b in boxes])
+    #将boxes里的数据类型转换为float类型
+    if boxes.dtype.kind == "i":
+        boxes = boxes.astype("float")
+
+    #初始化所选索引的列表
+    pick = []
+
+    #获取边界框的坐标
+    x1 = boxes[:, 0]
+    y1 = boxes[:, 1]
+    x2 = boxes[:, 2]
+    y2 = boxes[:, 3]
+    #计算框面积
+    area = (x2 - x1 + 1) * (y2 - y1 + 1)
+
+    #如果置信度为空，根据边界框的右下角y坐标对框进行排序
+    if len(probs) == 0:
+        idxs = np.argsort(y2)
+    #否则，按最高prob（降序）对框进行排序
+    else:
+        # idxs = np.argsort(probs)[::-1]
+        idxs = np.argsort(probs)
+
+    #保持循环，同时某些索引仍保留在索引中
+    while len(idxs) > 0:
+
+        last = len(idxs) - 1
+        i = idxs[last]
+
+        pick.append(i)
+
+        #将拿到的对象和其他目标做坐标方面的对比，x1[i]比x2[i]小，y1[i]比y2[i]小
+        xx1 = np.maximum(x1[i], x1[idxs[:last]])
+        yy1 = np.maximum(y1[i], y1[idxs[:last]])
+        xx2 = np.minimum(x2[i], x2[idxs[:last]])
+        yy2 = np.minimum(y2[i], y2[idxs[:last]])
+
+        w = np.maximum(0, xx2 - xx1 + 1)
+        h = np.maximum(0, yy2 - yy1 + 1)
+
+        overlap = (w * h) / area[idxs[:last]]
+
+
+
+            #删掉
+        idxs = np.delete(
+                idxs,
+                np.concatenate(([last], np.where(overlap > overlapThresh)[0])))
+
+
+    print("重叠框NMS后，剩余预测框数量为:", len(pick))
+    return pick
 
 
 
@@ -429,11 +430,11 @@ def refine_data(df, groupby='Image_Path',
                         probs = []
 
                     #拿到重叠框过滤后的索引
-                    # good_idxs = non_max_suppression(
-                    #     boxes_nms_input, probs=probs,
-                    #     overlapThresh=nms_overlap_thresh)
+                    good_idxs = non_max_suppression(
+                        boxes_nms_input, probs=probs,
+                        overlapThresh=nms_overlap_thresh)
 
-                    good_idxs=py_cpu_softnms(boxes_nms_input,probs)
+                    #good_idxs=py_cpu_softnms(boxes_nms_input,probs)
 
 
                     if len(boxes) == 0:
@@ -514,12 +515,12 @@ def plot_detections(im, boxes,
                     outfile='',
                     plot_thresh=0.2,
                     color_dict={},
-                    plot_line_thickness=2, show_labels=True,
+                    plot_line_thickness=1, show_labels=True,
                     compression_level=9,
                     skip_empty=False,
                     test_box_rescale_frac=1,
                     label_txt=None,
-                    draw_rect=True, draw_circle=False):
+                    draw_rect=True, draw_circle=False,reduce=False):
 
 
 
@@ -549,7 +550,15 @@ def plot_detections(im, boxes,
 
             #绘制矩形框
             if draw_rect:
-                cv2.rectangle(output, (int(left), int(bottom)), (int(right),
+                if reduce==True:
+                    cv2.rectangle(output, (int(left/4), int(bottom/4)), (int(right/4),
+                                                                     int(top/4)), color,
+                                  plot_line_thickness)
+
+
+                else:
+
+                    cv2.rectangle(output, (int(left), int(bottom)), (int(right),
                                                                  int(top)), color,
                               plot_line_thickness)
 
@@ -648,7 +657,8 @@ def execute(labels_dir='',
             groupby_cat='category',
             allow_nested_detections=True,
             draw_rect=True,
-            draw_circle=False):
+            draw_circle=False,
+            reduce=False):
 
 
     #要改一些生成全局框的相关参数，找augment_data函数
@@ -777,7 +787,11 @@ def execute(labels_dir='',
         outfile_point_img = os.path.join(plot_path, im_name + '_point' + '.jpg')
 
         print("绘制图像:", im_name)
-        im_cv2 = cv2.imread(im_path)
+        if reduce == True:
+            im_cv2 = cv2.imread(im_path,cv2.IMREAD_REDUCED_COLOR_4)
+
+        else:
+            im_cv2 = cv2.imread(im_path)
 
         x_pos = []
         y_pos = []
@@ -797,6 +811,8 @@ def execute(labels_dir='',
                 left, right, top, bottom = xmin, xmax, ymin, ymax
                 # 计算中心点坐标
                 cx, cy = int((left + right) / 2.0), int((top + bottom) / 2.0)
+                if reduce==True:
+                    cx, cy = int(cx/4),int(cy/4)
                 point_img[cy, cx] = 255
                 x_pos.append(cx)
                 y_pos.append(cy)
@@ -813,11 +829,11 @@ def execute(labels_dir='',
                         outfile=outfile_plot_image,
                         plot_thresh=detect_thresh,
                         color_dict=color_dict,
-                        plot_line_thickness=2,
+                        plot_line_thickness=1,
                         show_labels=False,
                         test_box_rescale_frac=1,
                         label_txt=None,
-                        draw_rect=draw_rect, draw_circle=draw_circle)
+                        draw_rect=draw_rect, draw_circle=draw_circle,reduce=reduce)
 
         print("进程结束，总耗时:", time.time()-t0, "秒")
         return
@@ -829,11 +845,11 @@ def execute(labels_dir='',
 
 if __name__ == '__main__':
 
-    labels_dir = '/home/kingargroo/corn/guanxian_result'             #labels放在哪儿
+    labels_dir = '/home/kingargroo/corn/zhangqiu/result'             #labels放在哪儿
     original = '/home/kingargroo/corn/big_img'                          #原图放在哪儿，注意这两条里面的内容要对应，有xinmi图片就要有xinmi标签
     out_path = 'out_results'                        #结果输出的父目录
-    plot_dir = 'M6'                                 #结果输出的子目录-父和子连在一起时完整路径，存在会报错，不存在会创建
+    plot_dir = 'M16'                                 #结果输出的子目录-父和子连在一起时完整路径，存在会报错，不存在会创建
     classes = ['M']                                 #类别，我方任务一般就一个对象
 
-    execute(labels_dir=labels_dir, original=original, out_results=out_path, plot_dir=plot_dir, classes=classes)
+    execute(labels_dir=labels_dir, original=original, out_results=out_path, plot_dir=plot_dir, classes=classes,reduce=False,im_ext='.jpg')
 
