@@ -1,8 +1,49 @@
 import onnxruntime as rt
 import numpy as np
 import cv2
-import yaml
+from collections import Counter
 
+
+def bbox_iou(box1, box2, x1y1x2y2=False, GIoU=False, DIoU=False, CIoU=True, eps=1e-7):
+    # Returns the IoU of box1 to box2. box1 is 4, box2 is nx4
+    box2 = box2.T
+    # Get the coordinates of bounding boxes
+    if x1y1x2y2:  # x1, y1, x2, y2 = box1
+        b1_x1, b1_y1, b1_x2, b1_y2 = box1[0], box1[1], box1[2], box1[3]
+        b2_x1, b2_y1, b2_x2, b2_y2 = box2[0], box2[1], box2[2], box2[3]
+    else:  # transform from xywh to xyxy
+        b1_x1, b1_x2 = box1[0] - box1[2] / 2, box1[0] + box1[2] / 2
+        b1_y1, b1_y2 = box1[1] - box1[3] / 2, box1[1] + box1[3] / 2
+        b2_x1, b2_x2 = box2[0] - box2[2] / 2, box2[0] + box2[2] / 2
+        b2_y1, b2_y2 = box2[1] - box2[3] / 2, box2[1] + box2[3] / 2
+    # Intersection area
+    inter = (np.minimum(b1_x2, b2_x2) - np.maximum(b1_x1, b2_x1)).clip(0) * \
+            (np.minimum(b1_y2, b2_y2) - np.maximum(b1_y1, b2_y1)).clip(0)
+    # Union Area
+    w1, h1 = b1_x2 - b1_x1, b1_y2 - b1_y1 + eps
+    w2, h2 = b2_x2 - b2_x1, b2_y2 - b2_y1 + eps
+    union = w1 * h1 + w2 * h2 - inter + eps
+    iou = inter / union
+    if CIoU or DIoU or GIoU:
+        cw = np.maximum(b1_x2, b2_x2) - np.minimum(b1_x1, b2_x1)  # convex (smallest enclosing box) width
+        ch = np.maximum(b1_y2, b2_y2) - np.minimum(b1_y1, b2_y1)  # convex height
+        if CIoU or DIoU:  # Distance or Complete IoU https://arxiv.org/abs/1911.08287v1
+            c2 = cw ** 2 + ch ** 2 + eps  # convex diagonal squared
+            rho2 = ((b2_x1 + b2_x2 - b1_x1 - b1_x2) ** 2 +
+                    (b2_y1 + b2_y2 - b1_y1 - b1_y2) ** 2) / 4  # center distance squared
+            if CIoU:  # https://github.com/Zzh-tju/DIoU-SSD-pytorch/blob/master/utils/box/box_utils.py#L47
+                v = (4 / np.pi ** 2) * np.square(np.arctan(w2 / h2) - np.arctan(w1 / h1))
+                alpha = v / (v - iou + (1 + eps))
+                return iou - (rho2 / c2 + v * alpha)  # CIoU
+            return iou - rho2 / c2  # DIoU
+        c_area = cw * ch + eps  # convex area
+        return iou - (c_area - union) / c_area  # GIoU https://arxiv.org/pdf/1902.09630.pdf
+    return iou  # IoU
+
+def find_most_common_elements(lst):
+    counter = Counter(lst)
+    most_common = counter.most_common(1)
+    return most_common[0][0]
 
 # 前处理
 def resize_image(image, size, letterbox_image):
@@ -66,46 +107,6 @@ def xywh2xyxy(*box):
     return ret
 
 
-def get_inter(box1, box2):
-    """
-    计算相交部分面积
-    Args:
-        box1: 第一个框
-        box2: 第二个狂
-    Returns: 相交部分的面积
-    """
-    x1, y1, x2, y2 = xywh2xyxy(*box1)
-    x3, y3, x4, y4 = xywh2xyxy(*box2)
-    # 验证是否存在交集
-    if x1 >= x4 or x2 <= x3:
-        return 0
-    if y1 >= y4 or y2 <= y3:
-        return 0
-    # 将x1,x2,x3,x4排序，因为已经验证了两个框相交，所以x3-x2就是交集的宽
-    x_list = sorted([x1, x2, x3, x4])
-    x_inter = x_list[2] - x_list[1]
-    # 将y1,y2,y3,y4排序，因为已经验证了两个框相交，所以y3-y2就是交集的宽
-    y_list = sorted([y1, y2, y3, y4])
-    y_inter = y_list[2] - y_list[1]
-    # 计算交集的面积
-    inter = x_inter * y_inter
-    return inter
-
-
-def get_iou(box1, box2):
-    """
-    计算交并比： (A n B)/(A + B - A n B)
-    Args:
-        box1: 第一个框
-        box2: 第二个框
-    Returns:  # 返回交并比的值
-    """
-    box1_area = box1[2] * box1[3]  # 计算第一个框的面积
-    box2_area = box2[2] * box2[3]  # 计算第二个框的面积
-    inter_area = get_inter(box1, box2)
-    union = box1_area + box2_area - inter_area  # (A n B)/(A + B - A n B)
-    iou = inter_area / union
-    return iou
 
 
 def nms(pred, conf_thres, iou_thres):
@@ -114,7 +115,7 @@ def nms(pred, conf_thres, iou_thres):
     Args:
         pred: 模型输出特征图
         conf_thres: 置信度阈值
-        iou_thres: iou阈值
+        iou_thres: iou阈值,列表，記錄對應class 的nms threshold ：{'corn':0.3,'cucumber':0.5,'wheat':0.7},即 [0.3,0.5,0.7]
     Returns: 输出后的结果
     """
     box = pred[pred[..., 4] > conf_thres]  # 置信度筛选
@@ -122,6 +123,8 @@ def nms(pred, conf_thres, iou_thres):
     cls = []
     for i in range(len(cls_conf)):
         cls.append(int(np.argmax(cls_conf[i])))
+
+    pre_class=find_most_common_elements(cls)
     total_cls = list(set(cls))  # 记录图像内共出现几种物体
     output_box = []
     # 每个预测类别分开考虑
@@ -149,8 +152,9 @@ def nms(pred, conf_thres, iou_thres):
             del_index = []
             for j in range(len(sort_cls_box)):
                 current_box = sort_cls_box[j]
-                iou = get_iou(max_conf_box, current_box)
-                if iou > iou_thres:
+                #iou = get_iou(max_conf_box, current_box)
+                iou=bbox_iou(max_conf_box,current_box,CIoU=True)
+                if iou > iou_thres[pre_class]:
                     # 筛选出与当前最大框Iou大于阈值的框的索引
                     del_index.append(j)
             # 删除这些索引
@@ -196,25 +200,24 @@ def draw(res, image, cls,show=False):
     """
     for r in res:
         #draw point
-        #image = cv2.rectangle(image, (int(r[0]), int(r[1])), (int(r[2]), int(r[3])), (255, 0, 0), 1)
         image=cv2.circle(image,center=(int((r[0]+r[2])/2),int((r[1]+r[3])/2)),radius=1,color=(0, 0, 255),thickness=10)
-
-        #text = "{}:{}".format(cls[int(r[5])], \
-        #                      round(float(r[4]), 2))
-        #h, w = int(r[3]) - int(r[1]), int(r[2]) - int(r[0])  # 计算预测框的长宽
-        #font_size = min(h / 640, w / 640) * 3  # 计算字体大小（随框大小调整）
-        #image = cv2.putText(image, text, (max(10, int(r[0])), max(20, int(r[1]))), cv2.FONT_HERSHEY_COMPLEX,
-                           # max(font_size, 0.3), (0, 0, 255), 1)  # max()为了确保字体不过界
     text='number:{}'.format(len(res))
-    image=cv2.putText(image,text,(150,150),cv2.FONT_HERSHEY_COMPLEX,5,(255, 255, 255), 10)
+    imgh,imgw=image.shape[0:2]
+    newh=imgh+350
+    shape = (newh, imgw, 3)  # y, x, RGB
+    # 直接建立全白圖片 100*100
+    new_img = np.full(shape, 255)
+    new_img[0:imgh,0:imgw,:]=image.copy()
+    new_img=cv2.putText(new_img.astype(np.int32),text,(15,newh-230),cv2.FONT_HERSHEY_COMPLEX,5,(0, 0, 0), 10)
+    new_img=cv2.putText(new_img.astype(np.int32),'id:{}'.format(1),(imgw-500,newh-230),cv2.FONT_HERSHEY_COMPLEX,5,(0, 0, 0), 10)
     if show:
-        cv2.imshow("result", image)
+        cv2.imshow("result", new_img)
         cv2.waitKey()
-    return image
+    return new_img,len(res)
 
 
-def predict_single_img(input_path,img_path,onnx_model_path,out_path,class_list= ['seed']):
-    std_h, std_w = 1280, 960  # 标准输入尺寸
+def predict_single_img(input_path,img_path,onnx_model_path,out_path,class_list=['corn','sorghum','soybean','wheat']):
+    std_h, std_w =1280,1280 # 标准输入尺寸
 
     class_list = class_list
     input_path = input_path
@@ -230,17 +233,17 @@ def predict_single_img(input_path,img_path,onnx_model_path,out_path,class_list= 
     sess = rt.InferenceSession(onnx_model_path)  # yolov8模型onnx格式
     input_name = sess.get_inputs()[0].name
     label_name = sess.get_outputs()[0].name
-    pred = sess.run([label_name], {input_name: data})[
-        0]  # 输出(8400x84, 84=80cls+4reg, 8400=3种尺度的特征图叠加), 这里的预测框的回归参数是xywh， 而不是中心点到框边界的距离
+    pred = sess.run([label_name], {input_name: data})[0]  # 输出(8400x84, 84=80cls+4reg, 8400=3种尺度的特征图叠加), 这里的预测框的回归参数是xywh， 而不是中心点到框边界的距离
     pred = std_output(pred)
     # 置信度过滤+nms
-    result = nms(pred, 0.2, 0.3)  # [x,y,w,h,conf(最大类别概率),class]
+    result = nms(pred, 0.15, [0.4,0.3,0.35,0.7])  # [x,y,w,h,conf(最大类别概率),class]
     # 坐标变换
     result = cod_trf(result, img, img_after)
-    image = draw(result, img, class_list)
+    image,total_num = draw(result, img, class_list)
     # 保存输出图像
     out_path = out_path
     cv2.imwrite(out_path + img_path, image)
+    return total_num
 
 
 
@@ -248,4 +251,4 @@ def predict_single_img(input_path,img_path,onnx_model_path,out_path,class_list= 
 
 
 if __name__ == '__main__':
-    predict_single_img(input_path="/home/kingargroo/seed/test/img/",img_path='test5.jpg',onnx_model_path="/home/kingargroo/seed/vision1.onnx",out_path="/home/kingargroo/seed/test/predict")
+    total_num=predict_single_img(input_path="/home/kingargroo/seed/test/img/",img_path='test11.jpg',onnx_model_path="/home/kingargroo/seed/vision4.onnx",out_path="/home/kingargroo/seed/test/predict")
