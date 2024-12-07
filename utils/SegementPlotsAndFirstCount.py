@@ -1,7 +1,7 @@
 import numpy as np
 import cv2
 import pandas as pd
-
+import matplotlib.pyplot as plt
 def Visualize(save_path,vertical_lines,horizontal_lines,img):
 
     # visualize the line to check
@@ -9,7 +9,8 @@ def Visualize(save_path,vertical_lines,horizontal_lines,img):
     vertical_lines = vertical_lines[vertical_lines.argsort()]
     horizontal_lines = horizontal_lines[horizontal_lines.argsort()]
 
-    plot = np.array([0, 0, 0, 0]).reshape((1, -1))
+    #placeholder
+    plot = np.array([0, 0, 0, 0,0,0]).reshape((1, -1))
 
     sign_num = 0
     for index,i in enumerate(range(vertical_lines.shape[0] - 1)):
@@ -28,7 +29,7 @@ def Visualize(save_path,vertical_lines,horizontal_lines,img):
             w = x2 - x1
             h = y2 - y1
             cv2.rectangle(img, (x1, y1), (x2, y2), 255, thickness=1)
-            plot_ = np.array([x1, y1, x2, y2]).reshape((1, -1))
+            plot_ = np.array([x1, y1, x2, y2,j,i]).reshape((1, -1))
             plot = np.concatenate([plot, plot_], axis=0)
             # if index%2==0:
             #     cv2.putText(img,str(sign_num_h)+'-'+str(sign_num), (x1 + 2, y1 + 5), cv2.FONT_HERSHEY_SIMPLEX, 0.2, 255, thickness=1)
@@ -60,38 +61,46 @@ def set_surrounding_pixels_to_zero(image, center_pixel):
     return image
 def count_yield(image):
     num=0
+    save_y=[]
     while True:
         white_pixels = np.argwhere(image != 0)
         for pixel in white_pixels:
             if image[pixel[0],pixel[1]]!=0:
                 num+=1
+                save_y.append(pixel[0])
                 image = set_surrounding_pixels_to_zero(image, (pixel[0],pixel[1]))
                 break
         if len(white_pixels)==0:
             break
-    return num
+    return num,save_y
 
 
 def Count(save_path,plot,raw_img):
     # count the plant number in each plot
-    plot_number = np.zeros((plot.shape[0], 5))
+    plot_number = np.zeros((plot.shape[0], 8), dtype=object)
     for area_index, area in enumerate(plot):
-        x1, y1, x2, y2 = area
+        x1, y1, x2, y2,range,col = area
         w = x2 - x1
         h = y2 - y1
         roi = raw_img[y1:y1 + h, x1:x1 + w]
-        plant_num = count_yield(roi)
+        plant_num,save_y = count_yield(roi)
         #plant_num = cv2.countNonZero(roi)/255
-        plot_number[area_index, 4] = plant_num
-        plot_number[area_index, 0:4] = np.array([x1, y1, x2, y2]).reshape((1, -1))
-
+        plot_number[area_index, 6] = plant_num
+        plot_number[area_index, 0:6] = np.array([x1, y1, x2, y2,range,col]).reshape((1, -1))
+        if plant_num!=0:
+            save_y=np.sort(save_y)
+            diff=np.diff(save_y)
+            diff=list(diff)
+        else:
+            diff=[]
+        plot_number[area_index,7]=diff
     df = pd.DataFrame(plot_number)
-    df.columns = ['x1', 'y1', 'x2', 'y2', 'count']
+    df.columns = ['x1', 'y1', 'x2', 'y2','Range','Col' ,'count','plant_diff']
     df.to_csv(save_path)
     return df
 
 def SegemtPlot(img):
-    #img = cv2.imread(img_path, cv2.IMREAD_GRAYSCALE)
+
     h,w=img.shape[0:2]
 
     horizontal_lines=[]
@@ -99,41 +108,54 @@ def SegemtPlot(img):
     # add first horizontal lines
     horizontal_lines.append(h_)
 
+    all_wdith_pixels=[]
+    all_wdith_index=[]
+    select_intensity=[]
     while True:
-        h_+=100
-        if h_+100>h:
+        h_+=200
+        if h_+200>h:
             break
         # find the minimun value in 100 pixel range
         pixel_list,index_list=[],[]
-        for i in range(150):
+        for i in range(200):
             total_pixel=np.sum(img[h_+i:h_+i+3,:])
             pixel_list.append(total_pixel)
+            all_wdith_pixels.append(total_pixel)
             index_list.append(h_+i)
+            all_wdith_index.append(h_+i)
         min_index=np.argmin(pixel_list)
         min_h=index_list[min_index]
-        if min_h-horizontal_lines[-1] <200:
+        if min_h-horizontal_lines[-1] <250:
             continue
         horizontal_lines.append(min_h+10)
+        select_intensity.append(pixel_list[min_index])
     # add last horizontal lines
     horizontal_lines.append(h-5)
-    print('h:',horizontal_lines)
+    # print('h:',horizontal_lines)
+    # horizontal_lines_ = horizontal_lines[1:-1]
+    # plt.plot(all_wdith_index, all_wdith_pixels)
+    # plt.scatter(horizontal_lines_,select_intensity,c='red')
+    # plt.title('Energy function for finding Range separation lines',fontsize=15)
+    # plt.xlabel('Y',fontsize=14)
+    # plt.ylabel('energy function value',fontsize=14)
+    # plt.savefig('re.png')
 
     w_=1
     vertical_lines=[]
     vertical_lines.append(w_)
 
     while True:
-        w_+=10
-        if w_+10>w:
+        w_+=20
+        if w_+20>w:
             break
         pixel_list, index_list = [], []
-        for i in range(10):
+        for i in range(20):
             total_pixel=np.sum(img[:,w_+i:w_+i+3])
             pixel_list.append(total_pixel)
             index_list.append(w_ + i)
         min_index = np.argmin(pixel_list)
         min_w = index_list[min_index]
-        if min_w-vertical_lines[-1]<10:
+        if min_w-vertical_lines[-1]<20:
             continue
         vertical_lines.append(min_w+2)
     vertical_lines.append(w-2)
@@ -207,12 +229,12 @@ def Check_Consecutive(vis_img,img,plot_info,vis_img_save_path):
 
 
 if __name__ =='__main__':
-    img_path='/home/kingargroo/streamline/LINHAI1/linghaizhengqu15-1_point.png'
+    img_path='/home/kingargroo/streamline/lishu/lishu15-1_point.png'
     raw_img=cv2.imread(img_path,0)
-    #raw_img=cv2.cvtColor(raw_img,cv2.COLOR_BGR2GRAY)
+
     print(raw_img.shape)
-    Segment_plot_path='slide2.jpg'
-    Fist_count_save_path='countresults1.csv'
+    Segment_plot_path='/home/kingargroo/streamline/lishu/slide.png'
+    Fist_count_save_path='/home/kingargroo/streamline/lishu/countresults.csv'
     plot_number,horizontal_lines, vertical_lines=SegmentMain(rawimg=raw_img,Segment_plot_path=Segment_plot_path,First_count_save_path=Fist_count_save_path)
 
 
